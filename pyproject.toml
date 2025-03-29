@@ -1,0 +1,23 @@
+[project]
+name = "pyxelstein3d"
+version = "0.1.0"
+description = "LoFi Raycasting 3d FPS made using Pyxel"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyxel>=2.3.17"
+]
+
+[dependency-groups]
+lint = [
+    "ruff>=0.6.4",
+    "black",
+    "isort>=5.13.2",
+    "pre-commit>=3.8.0",
+]
+
+[tool.nbqa]
+tools = ["black"]
+
+[tool.isort]
+profile = "black"
