@@ -118,44 +118,56 @@ def cast_ray(
     ray_dir_x = pyxel.cos(rot)
     ray_dir_y = pyxel.sin(rot)
 
-    # Which tile of the map we're in
+    # Current map position (tile coordinates)
     map_x = int(x // TILE_SIZE)
     map_y = int(y // TILE_SIZE)
 
-    # Length of ray from current position to next x or y-side
-    side_dist_x = 0.0
-    side_dist_y = 0.0
-
     # Length of ray from one x or y-side to next x or y-side
-    delta_dist_x = float("inf") if ray_dir_x == 0 else abs(1 / ray_dir_x)
-    delta_dist_y = float("inf") if ray_dir_y == 0 else abs(1 / ray_dir_y)
+    delta_dist_x = (
+        float("inf") if abs(ray_dir_x) < 1e-6 else abs(1.0 / ray_dir_x) * TILE_SIZE
+    )
+    delta_dist_y = (
+        float("inf") if abs(ray_dir_y) < 1e-6 else abs(1.0 / ray_dir_y) * TILE_SIZE
+    )
 
     # What direction to step in x or y-direction (either +1 or -1)
     step_x = 1 if ray_dir_x >= 0 else -1
     step_y = 1 if ray_dir_y >= 0 else -1
 
-    # Calculate initial side_dist values
+    # Calculate distance to the next x or y grid line
+    x_remainder = x % TILE_SIZE
+    y_remainder = y % TILE_SIZE
+
+    # Calculate distance to next grid line
     if ray_dir_x < 0:
-        side_dist_x = (x / TILE_SIZE - map_x) * delta_dist_x
+        side_dist_x = x_remainder / abs(ray_dir_x)  # Distance to previous x gridline
     else:
-        side_dist_x = (map_x + 1.0 - x / TILE_SIZE) * delta_dist_x
+        side_dist_x = (
+            (TILE_SIZE - x_remainder) / ray_dir_x if ray_dir_x > 0 else float("inf")
+        )
 
     if ray_dir_y < 0:
-        side_dist_y = (y / TILE_SIZE - map_y) * delta_dist_y
+        side_dist_y = y_remainder / abs(ray_dir_y)  # Distance to previous y gridline
     else:
-        side_dist_y = (map_y + 1.0 - y / TILE_SIZE) * delta_dist_y
+        side_dist_y = (
+            (TILE_SIZE - y_remainder) / ray_dir_y if ray_dir_y > 0 else float("inf")
+        )
 
     # DDA algorithm
     side = 0  # 0 for x-side, 1 for y-side
     hit = False
+    distance = 0
+    max_distance = MAX_CAST_DISTANCE // TILE_SIZE
 
-    for _ in range(MAX_CAST_DISTANCE):
-        # Jump to next map square, either in x-direction, or in y-direction
+    while distance < max_distance:
+        # Jump to next map square
         if side_dist_x < side_dist_y:
+            distance = side_dist_x
             side_dist_x += delta_dist_x
             map_x += step_x
             side = 0
         else:
+            distance = side_dist_y
             side_dist_y += delta_dist_y
             map_y += step_y
             side = 1
@@ -169,39 +181,27 @@ def cast_ray(
             hit = True
             break
 
-    # If we didn't hit anything, return the maximum distance point
+    # If no hit, return the maximum distance point
     if not hit:
-        return (x + ray_dir_x * MAX_CAST_DISTANCE, y + ray_dir_y * MAX_CAST_DISTANCE)
+        return (x + ray_dir_x * max_distance, y + ray_dir_y * max_distance)
 
-    # Calculate exact hit position - this is the key fix
-    if side == 0:  # X-side was hit (vertical wall)
-        # The exact distance to the hit point
-        perp_wall_dist = (map_x - x / TILE_SIZE + (1 - step_x) / 2) / ray_dir_x
-
-        # Calculate the exact hit point on the wall
-        hit_x = map_x * TILE_SIZE
-        # If we're stepping right, hit is on left side of new tile; if stepping left, hit is on right side
+    # Calculate exact hit position
+    if side == 0:  # Vertical wall
+        # If x stepping is positive, we hit the left side of the tile
         if step_x > 0:
-            hit_x = hit_x  # Left edge of the tile
+            hit_x = map_x * TILE_SIZE
         else:
-            hit_x = hit_x + TILE_SIZE  # Right edge of the tile
-
-        # Calculate exact y-coordinate using the hit distance
-        hit_y = y + perp_wall_dist * ray_dir_y * TILE_SIZE
-    else:  # Y-side was hit (horizontal wall)
-        # The exact distance to the hit point
-        perp_wall_dist = (map_y - y / TILE_SIZE + (1 - step_y) / 2) / ray_dir_y
-
-        # Calculate the exact hit point on the wall
-        hit_y = map_y * TILE_SIZE
-        # If we're stepping down, hit is on top of new tile; if stepping up, hit is on bottom
+            hit_x = (map_x + 1) * TILE_SIZE
+        # Calculate y based on distance
+        hit_y = y + distance * ray_dir_y
+    else:  # Horizontal wall
+        # If y stepping is positive, we hit the top side of the tile
         if step_y > 0:
-            hit_y = hit_y  # Top edge of the tile
+            hit_y = map_y * TILE_SIZE
         else:
-            hit_y = hit_y + TILE_SIZE  # Bottom edge of the tile
-
-        # Calculate exact x-coordinate using the hit distance
-        hit_x = x + perp_wall_dist * ray_dir_x * TILE_SIZE
+            hit_y = (map_y + 1) * TILE_SIZE
+        # Calculate x based on distance
+        hit_x = x + distance * ray_dir_x
 
     return hit_x, hit_y
 
