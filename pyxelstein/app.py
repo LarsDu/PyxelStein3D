@@ -115,43 +115,35 @@ def cast_ray(
     x: float, y: float, rot: float, tilemap_idx: int = 0
 ) -> tuple[float, float]:
     # Ray direction vector
-    ray_dir_x = pyxel.cos(rot)
-    ray_dir_y = pyxel.sin(rot)
+    dx = pyxel.cos(rot)
+    dy = pyxel.sin(rot)
 
     # Current map position (tile coordinates)
-    map_x = int(x // TILE_SIZE)
-    map_y = int(y // TILE_SIZE)
+    tx = int(x // TILE_SIZE)
+    ty = int(y // TILE_SIZE)
 
     # Length of ray from one x or y-side to next x or y-side
-    delta_dist_x = (
-        float("inf") if abs(ray_dir_x) < 1e-6 else abs(1.0 / ray_dir_x) * TILE_SIZE
-    )
-    delta_dist_y = (
-        float("inf") if abs(ray_dir_y) < 1e-6 else abs(1.0 / ray_dir_y) * TILE_SIZE
-    )
+    delta_dist_x = float("inf") if abs(dx) < 1e-6 else abs(1.0 / dx) * TILE_SIZE
+    delta_dist_y = float("inf") if abs(dy) < 1e-6 else abs(1.0 / dy) * TILE_SIZE
 
     # What direction to step in x or y-direction (either +1 or -1)
-    step_x = 1 if ray_dir_x >= 0 else -1
-    step_y = 1 if ray_dir_y >= 0 else -1
+    step_x = 1 if dx >= 0 else -1
+    step_y = 1 if dy >= 0 else -1
 
     # Calculate distance to the next x or y grid line
     x_remainder = x % TILE_SIZE
     y_remainder = y % TILE_SIZE
 
     # Calculate distance to next grid line
-    if ray_dir_x < 0:
-        side_dist_x = x_remainder / abs(ray_dir_x)  # Distance to previous x gridline
+    if dx < 0:
+        side_dist_x = x_remainder / abs(dx)  # Distance to previous x gridline
     else:
-        side_dist_x = (
-            (TILE_SIZE - x_remainder) / ray_dir_x if ray_dir_x > 0 else float("inf")
-        )
+        side_dist_x = (TILE_SIZE - x_remainder) / dx if dx > 0 else float("inf")
 
-    if ray_dir_y < 0:
-        side_dist_y = y_remainder / abs(ray_dir_y)  # Distance to previous y gridline
+    if dy < 0:
+        side_dist_y = y_remainder / abs(dy)  # Distance to previous y gridline
     else:
-        side_dist_y = (
-            (TILE_SIZE - y_remainder) / ray_dir_y if ray_dir_y > 0 else float("inf")
-        )
+        side_dist_y = (TILE_SIZE - y_remainder) / dy if dy > 0 else float("inf")
 
     # DDA algorithm
     side = 0  # 0 for x-side, 1 for y-side
@@ -164,18 +156,18 @@ def cast_ray(
         if side_dist_x < side_dist_y:
             distance = side_dist_x
             side_dist_x += delta_dist_x
-            map_x += step_x
+            tx += step_x
             side = 0
         else:
             distance = side_dist_y
             side_dist_y += delta_dist_y
-            map_y += step_y
+            ty += step_y
             side = 1
 
         # Check if ray hit a wall
         if is_solid_tile(
-            map_x * TILE_SIZE + TILE_SIZE // 2,
-            map_y * TILE_SIZE + TILE_SIZE // 2,
+            tx * TILE_SIZE + TILE_SIZE // 2,
+            ty * TILE_SIZE + TILE_SIZE // 2,
             tilemap_idx=tilemap_idx,
         ):
             hit = True
@@ -183,25 +175,25 @@ def cast_ray(
 
     # If no hit, return the maximum distance point
     if not hit:
-        return (x + ray_dir_x * max_distance, y + ray_dir_y * max_distance)
+        return (x + dx * max_distance, y + dy * max_distance)
 
     # Calculate exact hit position
     if side == 0:  # Vertical wall
         # If x stepping is positive, we hit the left side of the tile
         if step_x > 0:
-            hit_x = map_x * TILE_SIZE
+            hit_x = tx * TILE_SIZE
         else:
-            hit_x = (map_x + 1) * TILE_SIZE
+            hit_x = (tx + 1) * TILE_SIZE
         # Calculate y based on distance
-        hit_y = y + distance * ray_dir_y
+        hit_y = y + distance * dy
     else:  # Horizontal wall
         # If y stepping is positive, we hit the top side of the tile
         if step_y > 0:
-            hit_y = map_y * TILE_SIZE
+            hit_y = ty * TILE_SIZE
         else:
-            hit_y = (map_y + 1) * TILE_SIZE
+            hit_y = (ty + 1) * TILE_SIZE
         # Calculate x based on distance
-        hit_x = x + distance * ray_dir_x
+        hit_x = x + distance * dx
 
     return hit_x, hit_y
 
@@ -291,7 +283,7 @@ class Actor(Entity):
     def move(self):
         self.x += self.dx
         self.y += self.dy
-        self.rot += self.drot
+        self.rot = (self.rot + self.drot) % 360
 
 
 class DamageableActor(Actor):
@@ -369,7 +361,7 @@ class Player(DamageableActor):
             TILE_SIZE,
             TILE_SIZE,
             COL_TRANSPARENT_BLACK,
-            rotate=self.rot + 90,  # Not sure about this +90?
+            rotate=(self.rot + 90) % 360,  # Not sure about this +90?
         )
 
 
@@ -387,7 +379,7 @@ class Raycaster:
                 self.target.x + self.target.w // 2,
                 self.target.y + self.target.h // 2,
             )
-            ray_rot = rot_start + ri * self.deg_increment
+            ray_rot = (rot_start + ri * self.deg_increment) % 360
             hx, hy = cast_ray(cx, cy, ray_rot)
             # Draw in screen space
             pyxel.line(
