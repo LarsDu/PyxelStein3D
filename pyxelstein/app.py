@@ -467,7 +467,7 @@ class App:
             h=TILE_SIZE,
             rot=0,
             speed=1,
-            rot_speed=5,
+            rot_speed=1.5,
             hp=100,
         )
         self.overhead_camera.target = self.player
