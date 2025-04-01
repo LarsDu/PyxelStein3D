@@ -17,7 +17,10 @@ PLAYER_MARKER = (1, 1)
 
 
 # Textures
-WALL_BRICK_TEX = (4, 0, 4, 4)  # x,y, width, height
+# WALL_BRICK_TEX = (4, 0, 5, 5)  # x,y, width, height
+# WALL_BRICK_TEX_SHADED = (9, 0, 5, 5)  # x,y, width, height
+WALL_BRICK_TEX = (2, 2, 1, 1)  # x,y, width, height
+WALL_BRICK_TEX_SHADED = (3, 2, 1, 1)  # x,y, width, height
 
 
 # Singleton Metaclass
@@ -95,25 +98,9 @@ def collide_aabb(
     return xa < xb + wb and xa + wa > xb and ya < yb + hb and ya + ha > yb
 
 
-def cast_ray_basic(
-    x: float, y: float, rot: float, step: int = TILE_SIZE, tilemap_idx: int = 0
-) -> tuple[float, float]:
-    dx = step * pyxel.cos(rot)
-    dy = step * pyxel.sin(rot)
-    hx, hy = x, y
-    for _ in range(MAX_CAST_DISTANCE // step):
-        hx += dx
-        hy += dy
-        if is_solid_tile(hx, hy, tilemap_idx=tilemap_idx):
-            # TODO: Calculate nearest intercept with solid tile from ray
-            break
-    # If no hit found
-    return hx, hy
-
-
 def cast_ray(
     x: float, y: float, rot: float, tilemap_idx: int = 0
-) -> tuple[float, float]:
+) -> tuple[float, float, bool, int]:
     # Ray direction vector
     dx = pyxel.cos(rot)
     dy = pyxel.sin(rot)
@@ -123,13 +110,14 @@ def cast_ray(
     ty = int(y // TILE_SIZE)
 
     # Length of ray from one x or y-side to next x or y-side
-    delta_dist_x = float("inf") if abs(dx) < 1e-6 else abs(1.0 / dx) * TILE_SIZE
-    delta_dist_y = float("inf") if abs(dy) < 1e-6 else abs(1.0 / dy) * TILE_SIZE
+    delta_dist_x = float("inf") if abs(dx) < 1e-6 else abs(float(TILE_SIZE) / dx)
+    delta_dist_y = float("inf") if abs(dy) < 1e-6 else abs(float(TILE_SIZE) / dy)
 
-    # What direction to step in x or y-direction (either +1 or -1)
-    step_x = 1 if dx >= 0 else -1
-    step_y = 1 if dy >= 0 else -1
+    # What direction to increment tiles in x or y-direction (either +1 or -1)
+    tile_step_x = 1 if dx >= 0 else -1
+    tile_step_y = 1 if dy >= 0 else -1
 
+    # CALCULATE THE VERY FIRST INTERCEPT
     # Calculate distance to the next x or y grid line
     x_remainder = x % TILE_SIZE
     y_remainder = y % TILE_SIZE
@@ -146,23 +134,23 @@ def cast_ray(
         side_dist_y = (TILE_SIZE - y_remainder) / dy if dy > 0 else float("inf")
 
     # DDA algorithm
-    side = 0  # 0 for x-side, 1 for y-side
+    is_stepping_x: bool = True
     hit = False
     distance = 0
-    max_distance = MAX_CAST_DISTANCE // TILE_SIZE
 
-    while distance < max_distance:
+    # Alternatively step x or y by delta_dist_x or delta_dist_y depending on which is larger
+    while distance < MAX_CAST_DISTANCE:
         # Jump to next map square
         if side_dist_x < side_dist_y:
             distance = side_dist_x
             side_dist_x += delta_dist_x
-            tx += step_x
-            side = 0
+            tx += tile_step_x
+            is_stepping_x = True
         else:
             distance = side_dist_y
             side_dist_y += delta_dist_y
-            ty += step_y
-            side = 1
+            ty += tile_step_y
+            is_stepping_x = False
 
         # Check if ray hit a wall
         if is_solid_tile(
@@ -175,27 +163,86 @@ def cast_ray(
 
     # If no hit, return the maximum distance point
     if not hit:
-        return (x + dx * max_distance, y + dy * max_distance)
+        return (
+            x + dx * MAX_CAST_DISTANCE,
+            y + dy * MAX_CAST_DISTANCE,
+            is_stepping_x,
+            0,
+        )
 
     # Calculate exact hit position
-    if side == 0:  # Vertical wall
-        # If x stepping is positive, we hit the left side of the tile
-        if step_x > 0:
-            hit_x = tx * TILE_SIZE
-        else:
-            hit_x = (tx + 1) * TILE_SIZE
-        # Calculate y based on distance
-        hit_y = y + distance * dy
+    if is_stepping_x:  # Vertical wall
+        hx = tx * TILE_SIZE if tile_step_x > 0 else (tx + 1) * TILE_SIZE
+        hy = y + distance * dy
+        wall_offset = int(hy) % TILE_SIZE  # Offset relative to the wall's surface
     else:  # Horizontal wall
-        # If y stepping is positive, we hit the top side of the tile
-        if step_y > 0:
-            hit_y = ty * TILE_SIZE
-        else:
-            hit_y = (ty + 1) * TILE_SIZE
-        # Calculate x based on distance
-        hit_x = x + distance * dx
+        hy = ty * TILE_SIZE if tile_step_y > 0 else (ty + 1) * TILE_SIZE
+        hx = x + distance * dx
+        wall_offset = int(hx) % TILE_SIZE  # Offset relative to the wall's surface
 
-    return hit_x, hit_y
+    return hx, hy, is_stepping_x, wall_offset
+
+
+def calculate_column_height_fisheye(x: float, y: float, hx: float, hy: float) -> int:
+    """ """
+    dist = pyxel.sqrt((hx - x) ** 2 + (hy - y) ** 2)
+    dist = max(1, dist)  # At 0 to 1 distance, fill screen height
+    return int(SCREEN_HEIGHT / dist) * 4
+
+
+def calculate_column_height(
+    x: float,
+    y: float,
+    hx: float,
+    hy: float,
+    player_rot: float,
+    ray_rot_relative_to_player: float,
+    dist_scale=0.5,
+) -> int:
+
+    ray_angle = (ray_rot_relative_to_player - player_rot) % 360
+    corrected_distance = (
+        pyxel.sqrt((hx - x) ** 2 + (hy - y) ** 2) * pyxel.cos(ray_angle) * dist_scale
+    )
+    return int(SCREEN_HEIGHT / max(1, corrected_distance)) * 4
+
+
+def sample_texture_to_column(
+    x: int,
+    y: int,
+    image_idx: int,
+    texture: tuple[int, int, int, int],
+    col_height: int,
+    uoff: int = 0,
+) -> None:
+    tex_u, tex_v, tex_w, tex_h = texture
+    tex_u *= TILE_SIZE
+    tex_v *= TILE_SIZE
+    tex_w *= TILE_SIZE
+    tex_h *= TILE_SIZE
+
+    # Zero guard
+    col_height = max(1, col_height)
+
+    image = pyxel.images[image_idx]
+
+    for yoff in range(col_height // 2 + 1):
+        voff = int(tex_h * (yoff / col_height))
+        col = image.pget(
+            tex_u + uoff,
+            tex_v + voff,
+        )
+        pyxel.pset(
+            x,
+            y + yoff,
+            col,
+        )
+        # Mirror draw from the bottom
+        pyxel.pset(
+            x,
+            y + col_height - yoff,
+            col,
+        )
 
 
 class OverheadCamera(metaclass=Singleton):
@@ -372,22 +419,67 @@ class Raycaster:
         self.deg_increment = RAY_CAST_ARC_DEG / float(self.num_rays)
         self.overhead_camera = OverheadCamera()
 
+        # HIT_X, HIT_Y, COL_HEIGHT for every single raycast hit
+        self.hit_buffer = [
+            [MAX_CAST_DISTANCE, MAX_CAST_DISTANCE, SCREEN_HEIGHT]
+            for _ in range(self.num_rays)
+        ]
+
     def update(self) -> None:
         rot_start = self.target.rot - RAY_CAST_ARC_DEG * 0.5
+        cx, cy = (
+            self.target.x + self.target.w // 2,
+            self.target.y + self.target.h // 2,
+        )
         for ri in range(self.num_rays):
-            cx, cy = (
-                self.target.x + self.target.w // 2,
-                self.target.y + self.target.h // 2,
-            )
             ray_rot = (rot_start + ri * self.deg_increment) % 360
-            hx, hy = cast_ray(cx, cy, ray_rot)
-            # Draw in screen space
+            hx, hy, is_stepping_x, wall_offset = cast_ray(cx, cy, ray_rot)
+            col_height = calculate_column_height(
+                cx, cy, hx, hy, self.target.rot, ray_rot
+            )
+            self.hit_buffer[ri] = [hx, hy, col_height, is_stepping_x, wall_offset]
+
+    def draw_overhead(self) -> None:
+        cx, cy = (
+            self.target.x + self.target.w // 2,
+            self.target.y + self.target.h // 2,
+        )
+        sx = cx - self.overhead_camera.x
+        sy = cy - self.overhead_camera.y
+
+        self.draw_debug_rays(sx, sy)
+
+    def draw_debug_rays(self, sx: float, sy: float) -> None:
+        for i in range(self.num_rays):
+            hx, hy, _ = self.hit_buffer[i]
             pyxel.line(
-                cx - self.overhead_camera.x,
-                cy - self.overhead_camera.y,
+                sx,
+                sy,
                 hx - self.overhead_camera.x,
                 hy - self.overhead_camera.y,
                 pyxel.COLOR_GREEN,
+            )
+
+    def draw_3d_view(self) -> None:
+        # Draw floor
+        pyxel.rect(
+            0, SCREEN_HEIGHT // 2, SCREEN_WIDTH, SCREEN_HEIGHT, pyxel.COLOR_BROWN
+        )
+        # Draw ceiling
+        pyxel.rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT // 2, pyxel.COLOR_GRAY)
+
+        for i in range(self.num_rays):
+            # Column height
+            col_height = self.hit_buffer[i][2]
+            is_stepping_x = self.hit_buffer[i][3]
+            wall_offset = self.hit_buffer[i][4]
+            sample_texture_to_column(
+                i,
+                SCREEN_HEIGHT // 2 - col_height // 2,
+                0,
+                WALL_BRICK_TEX if is_stepping_x else WALL_BRICK_TEX_SHADED,
+                col_height,
+                uoff=wall_offset,  # Still a bug here. Ranges from 0 to 7
             )
 
 
@@ -459,7 +551,7 @@ class App:
             h=TILE_SIZE,
             rot=0,
             speed=1,
-            rot_speed=1.5,
+            rot_speed=2,
             hp=100,
         )
         self.overhead_camera.target = self.player
@@ -470,22 +562,31 @@ class App:
     def update(self):
         self.player.update()
         self.overhead_camera.update()
+        self.raycaster.update()
 
     def draw(self):
-        pyxel.cls(COL_TRANSPARENT_BLACK)
-        # Draw the overhead tilemap
+        self.raycaster.draw_3d_view()
+        self.draw_overhead()
+
+    def draw_overhead(self, scale=0.25):
+        # pyxel.cls(COL_TRANSPARENT_BLACK)
+        # pyxel.blt(0,0,0,0,0,SCREEN_WIDTH*scale,SCREEN_HEIGHT*scale)
+        # self.draw_overhead_tilemap(scale)
+        # self.player.draw()
+        pass
+
+    def draw_overhead_tilemap(self, scale) -> None:
         pyxel.bltm(
             0,
-            0,
-            0,
+            int(SCREEN_WIDTH * scale) // 2,
+            int(SCREEN_HEIGHT * scale) // 2,
             self.overhead_camera.x,
             self.overhead_camera.y,
-            self.overhead_camera.w,
-            self.overhead_camera.h,
+            int(self.overhead_camera.w * scale),  # self.overhead_camera.w,
+            int(self.overhead_camera.h * scale),  # self.overhead_camera.h,
             COL_TRANSPARENT_BLACK,
+            scale=scale,
         )
-        self.player.draw()
-        self.raycaster.update()
 
 
 App()

@@ -1,7 +1,4 @@
-# PyxelPlumber
-
-
-
+# PyxelStein3D
 
 ## [PLAY HERE](https://kitao.github.io/pyxel/wasm/launcher/?run=LarsDu.PyxelStein3D.pyxelstein.app&gamepad=enabled)
 
