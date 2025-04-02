@@ -11,16 +11,42 @@ COL_TRANSPARENT_PURP = 2
 
 # MARKERS
 EMPTY = (0, 0)
-WALL = (1, 0)
+WALL = (2, 0)
 PLAYER_SPAWN_MARKER = (0, 1)
-PLAYER_MARKER = (1, 1)
+PLAYER_MARKER = (1, 8)
 
 
 # Textures
-# WALL_BRICK_TEX = (4, 0, 5, 5)  # x,y, width, height
-# WALL_BRICK_TEX_SHADED = (9, 0, 5, 5)  # x,y, width, height
-WALL_BRICK_TEX = (2, 2, 1, 1)  # x,y, width, height
-WALL_BRICK_TEX_SHADED = (3, 2, 1, 1)  # x,y, width, height
+# WALL_BRICK_TEX = (4, 0, 4, 4)  # x,y, width, height
+# WALL_BRICK_TEX_SHADED = (9, 0, 4, 4)  # x,y, width, height
+WALL_BRICK_TEX = (2, 9, 1, 2)
+WALL_BRICK_TEX_SHADED = (3, 9, 1, 2)
+
+# Brownshirt
+BROWNSHIRT_FRONT_TEX = (0, 11, 2, 4)
+BROWNSHIRT_SIDE_TEX_LEFT = (2, 11, 2, 4)
+BROWNSHIRT_DYING_TEX = (0, 15, 2, 4)
+BROWNSHIRT_CORPSE_TEX = (3, 16, 2, 2)
+
+# Powerups
+HEALTH_CHICKEN_LEG_TEX = (0, 20, 2, 1)
+HEALTH_POWERUP_TEX = (0, 19, 2, 1)
+AMMO_POWERUP_TEX = (4, 14, 4, 4)  ##
+
+# Weapons
+PISTOL_TEX = (2, 19, 4, 4)
+PISTOL_MUZZLE_FLASH_TEX = (2, 21, 4, 4)
+INCOMING_BULLET_TEX = (4, 19, 4, 4)
+
+# MARKERS
+HEALTH_CHICKEN_MARKER = (0, 9)
+HEALTH_LARGE_MARKER = (1, 8)
+AMMO_POWERUP_MARKER = (0, 10)
+PATROL_LEFT_MARKER = (0, 22)
+PATROL_RIGHT_MARKER = (0, 21)
+PATROL_UP_MARKER = (0, 21)
+PATROL_DOWN_MARKER = (0, 22)
+RUBY_MARKER = (0, 4)
 
 
 # Singleton Metaclass
@@ -199,7 +225,6 @@ def calculate_column_height(
     ray_rot_relative_to_player: float,
     dist_scale=0.5,
 ) -> int:
-
     ray_angle = (ray_rot_relative_to_player - player_rot) % 360
     corrected_distance = (
         pyxel.sqrt((hx - x) ** 2 + (hy - y) ** 2) * pyxel.cos(ray_angle) * dist_scale
@@ -227,7 +252,7 @@ def sample_texture_to_column(
     image = pyxel.images[image_idx]
 
     for yoff in range(col_height // 2 + 1):
-        voff = int(tex_h * (yoff / col_height))
+        voff = int(tex_h * (2 * yoff / col_height))
         col = image.pget(
             tex_u + uoff,
             tex_v + voff,
@@ -238,9 +263,14 @@ def sample_texture_to_column(
             col,
         )
         # Mirror draw from the bottom
+        # pyxel.pset(
+        #    x,
+        #    y + col_height - yoff,
+        #    col,
+        # )
         pyxel.pset(
             x,
-            y + col_height - yoff,
+            y + yoff + col_height // 2,
             col,
         )
 
@@ -395,7 +425,7 @@ class Player(DamageableActor):
         if pyxel.btn(pyxel.KEY_D) or pyxel.btn(pyxel.KEY_RIGHT):
             self.rotate_right()
 
-    def draw(self):
+    def draw(self, scale=1.0):
         u, v = PLAYER_MARKER
         u *= TILE_SIZE
         v *= TILE_SIZE
@@ -409,6 +439,7 @@ class Player(DamageableActor):
             TILE_SIZE,
             COL_TRANSPARENT_BLACK,
             rotate=(self.rot + 90) % 360,  # Not sure about this +90?
+            scale=scale,
         )
 
 
@@ -421,23 +452,30 @@ class Raycaster:
 
         # HIT_X, HIT_Y, COL_HEIGHT for every single raycast hit
         self.hit_buffer = [
-            [MAX_CAST_DISTANCE, MAX_CAST_DISTANCE, SCREEN_HEIGHT]
-            for _ in range(self.num_rays)
+            [MAX_CAST_DISTANCE, MAX_CAST_DISTANCE] for _ in range(self.num_rays)
         ]
 
-    def update(self) -> None:
-        rot_start = self.target.rot - RAY_CAST_ARC_DEG * 0.5
-        cx, cy = (
-            self.target.x + self.target.w // 2,
-            self.target.y + self.target.h // 2,
+    def draw_floor(self) -> None:
+        # Draw floor
+        pyxel.rect(
+            0, SCREEN_HEIGHT // 2, SCREEN_WIDTH, SCREEN_HEIGHT, pyxel.COLOR_BROWN
         )
-        for ri in range(self.num_rays):
-            ray_rot = (rot_start + ri * self.deg_increment) % 360
-            hx, hy, is_stepping_x, wall_offset = cast_ray(cx, cy, ray_rot)
-            col_height = calculate_column_height(
-                cx, cy, hx, hy, self.target.rot, ray_rot
-            )
-            self.hit_buffer[ri] = [hx, hy, col_height, is_stepping_x, wall_offset]
+
+    # '''
+    # num_gradients = 10
+    # grad_height = SCREEN_HEIGHT // num_gradients
+    #
+    # for i in range(num_gradients):
+    #     pyxel.dither(i/num_gradients)
+    #     pyxel.rect(
+    #         0, SCREEN_HEIGHT // 2 + i * grad_height, SCREEN_WIDTH, grad_height, pyxel.COLOR_LIGHT_BLUE
+    #     )
+    # pyxel.dither(1.0)
+    # '''
+
+    def draw_ceiling(self) -> None:
+        # Draw ceiling
+        pyxel.rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT // 2, pyxel.COLOR_GRAY)
 
     def draw_overhead(self) -> None:
         cx, cy = (
@@ -450,8 +488,9 @@ class Raycaster:
         self.draw_debug_rays(sx, sy)
 
     def draw_debug_rays(self, sx: float, sy: float) -> None:
+        pyxel.dither(0.5)
         for i in range(self.num_rays):
-            hx, hy, _ = self.hit_buffer[i]
+            hx, hy = self.hit_buffer[i]
             pyxel.line(
                 sx,
                 sy,
@@ -459,20 +498,25 @@ class Raycaster:
                 hy - self.overhead_camera.y,
                 pyxel.COLOR_GREEN,
             )
+        pyxel.dither(1.0)
 
     def draw_3d_view(self) -> None:
-        # Draw floor
-        pyxel.rect(
-            0, SCREEN_HEIGHT // 2, SCREEN_WIDTH, SCREEN_HEIGHT, pyxel.COLOR_BROWN
+        self.draw_floor()
+        self.draw_ceiling()
+        rot_start = self.target.rot - RAY_CAST_ARC_DEG * 0.5
+        cx, cy = (
+            self.target.x + self.target.w // 2,
+            self.target.y + self.target.h // 2,
         )
-        # Draw ceiling
-        pyxel.rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT // 2, pyxel.COLOR_GRAY)
 
         for i in range(self.num_rays):
-            # Column height
-            col_height = self.hit_buffer[i][2]
-            is_stepping_x = self.hit_buffer[i][3]
-            wall_offset = self.hit_buffer[i][4]
+            ray_rot = (rot_start + i * self.deg_increment) % 360
+            hx, hy, is_stepping_x, wall_offset = cast_ray(cx, cy, ray_rot)
+            self.hit_buffer[i] = (hx, hy)
+            col_height = calculate_column_height(
+                cx, cy, hx, hy, self.target.rot, ray_rot
+            )
+
             sample_texture_to_column(
                 i,
                 SCREEN_HEIGHT // 2 - col_height // 2,
@@ -486,19 +530,6 @@ class Raycaster:
 class Brownshirt(DamageableActor):
     def __init__(
         self, x: float, y: float, rot: float, speed: float = 1, hp: int = 20
-    ) -> None:
-        super().__init__(x, y, rot, speed, hp)
-
-    def update(self):
-        pass
-
-    def draw(self):
-        pass
-
-
-class Blackshirt(DamageableActor):
-    def __init__(
-        self, x: float, y: float, rot: float, speed: float = 1, hp: int = 50
     ) -> None:
         super().__init__(x, y, rot, speed, hp)
 
@@ -539,7 +570,7 @@ class App:
             SCREEN_HEIGHT,
             title="PyxelStein3D",
             fps=60,
-            display_scale=2,
+            display_scale=4,
             quit_key=pyxel.KEY_ESCAPE,
         )
         pyxel.load("assets/pyxelstein.pyxres")
@@ -557,36 +588,44 @@ class App:
         self.overhead_camera.target = self.player
         self.raycaster = Raycaster(target=self.player)
         self.manager = GameManager()
+        self.show_overhead_view = False
         pyxel.run(self.update, self.draw)
 
     def update(self):
         self.player.update()
-        self.overhead_camera.update()
-        self.raycaster.update()
+
+        # Toggle overhead view
+        if pyxel.btnp(pyxel.KEY_M):
+            self.show_overhead_view = not self.show_overhead_view
+        if self.show_overhead_view:
+            self.overhead_camera.update()
 
     def draw(self):
         self.raycaster.draw_3d_view()
-        self.draw_overhead()
+        if self.show_overhead_view:
+            self.draw_overhead()
+            self.raycaster.draw_overhead()
 
-    def draw_overhead(self, scale=0.25):
+    def draw_overhead(self, scale=1.0):
         # pyxel.cls(COL_TRANSPARENT_BLACK)
         # pyxel.blt(0,0,0,0,0,SCREEN_WIDTH*scale,SCREEN_HEIGHT*scale)
-        # self.draw_overhead_tilemap(scale)
-        # self.player.draw()
-        pass
+        self.draw_overhead_tilemap(scale)
+        self.player.draw(scale)
 
     def draw_overhead_tilemap(self, scale) -> None:
+        pyxel.dither(0.5)
         pyxel.bltm(
             0,
-            int(SCREEN_WIDTH * scale) // 2,
-            int(SCREEN_HEIGHT * scale) // 2,
+            0,
+            0,
             self.overhead_camera.x,
             self.overhead_camera.y,
-            int(self.overhead_camera.w * scale),  # self.overhead_camera.w,
-            int(self.overhead_camera.h * scale),  # self.overhead_camera.h,
+            SCREEN_WIDTH,
+            SCREEN_HEIGHT,
             COL_TRANSPARENT_BLACK,
             scale=scale,
         )
+        pyxel.dither(1.0)
 
 
 App()
